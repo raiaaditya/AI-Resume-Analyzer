@@ -48,17 +48,17 @@ jobs:
       - name: Build Auth Service
         run: |
           cd auth-service
-          ./mvnw clean package -DskipTests
+          mvn clean package -DskipTests
 
       - name: Build Resume Service
         run: |
           cd resume-service
-          ./mvnw clean package -DskipTests
+          mvn clean package -DskipTests
 
       - name: Build API Gateway
         run: |
           cd api-gateway
-          ./mvnw clean package -DskipTests
+          mvn clean package -DskipTests
 
   ai-service-build:
     runs-on: ubuntu-latest
