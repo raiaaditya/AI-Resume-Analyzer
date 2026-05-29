@@ -1,0 +1,54 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: resume-service
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/resumedb}
+    username: ${SPRING_DATASOURCE_USERNAME:admin}
+    password: ${SPRING_DATASOURCE_PASSWORD:adminpassword}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+ai:
+  service:
+    url: ${AI_SERVICE_URL:http://localhost:5000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics,info,beans,env,threaddump,heapdump
+      base-path: /actuator
+
+  endpoint:
+    health:
+      show-details: always
+    prometheus:
+      enabled: true
+
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        http.client.requests: true
+    tags:
+      application: resume-service
+
+  health:
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true

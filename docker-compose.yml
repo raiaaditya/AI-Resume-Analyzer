@@ -1,0 +1,284 @@
+services:
+  # ----------------------------------------------------
+  # FRONTEND SERVICE
+  # ----------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend-ui
+    ports:
+      - "80:80"
+    networks:
+      - ai-resume-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+
+  # ----------------------------------------------------
+  # API GATEWAY
+  # ----------------------------------------------------
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - EUREKA_CLIENT_REGISTERWITHEUREKA=false
+      - EUREKA_CLIENT_FETCHREGISTRY=false
+    networks:
+      - ai-resume-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      resume-service:
+        condition: service_healthy
+
+  # ----------------------------------------------------
+  # AUTH SERVICE
+  # ----------------------------------------------------
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/resumedb
+      - SPRING_DATASOURCE_USERNAME=admin
+      - SPRING_DATASOURCE_PASSWORD=adminpassword
+      - JWT_SECRET=mySuperSecretKeyThatIsVeryLongAndSecureForJwtTokenGeneration
+    networks:
+      - ai-resume-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8081/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+
+  # ----------------------------------------------------
+  # RESUME SERVICE
+  # ----------------------------------------------------
+  resume-service:
+    build:
+      context: ./resume-service
+      dockerfile: Dockerfile
+    container_name: resume-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/resumedb
+      - SPRING_DATASOURCE_USERNAME=admin
+      - SPRING_DATASOURCE_PASSWORD=adminpassword
+      - AI_SERVICE_URL=http://ai-service:5000
+      - JWT_SECRET=mySuperSecretKeyThatIsVeryLongAndSecureForJwtTokenGeneration
+      - SPRING_DATA_REDIS_HOST=redis-cache
+      - SPRING_DATA_REDIS_PORT=6379
+    networks:
+      - ai-resume-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8082/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+
+  # ----------------------------------------------------
+  # AI SERVICE (Python Flask)
+  # ----------------------------------------------------
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: ai-service
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_ENV=production
+    env_file:
+      - ./ai-service/.env
+    networks:
+      - ai-resume-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:5000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ----------------------------------------------------
+  # DATABASE (PostgreSQL)
+  # ----------------------------------------------------
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: postgres-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=resumedb
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=adminpassword
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - ai-resume-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d resumedb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------
+  # CACHE (Redis)
+  # ----------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: redis-cache
+    ports:
+      - "6379:6379"
+    networks:
+      - ai-resume-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ----------------------------------------------------
+  # PROMETHEUS (Monitoring)
+  # ----------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - ai-resume-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:9090/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      resume-service:
+        condition: service_healthy
+      api-gateway:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+      postgres-exporter:
+        condition: service_healthy
+      redis-exporter:
+        condition: service_healthy
+
+  # ----------------------------------------------------
+  # GRAFANA (Monitoring Dashboards)
+  # ----------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    networks:
+      - ai-resume-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      prometheus:
+        condition: service_healthy
+
+  # ----------------------------------------------------
+  # POSTGRES EXPORTER
+  # ----------------------------------------------------
+  postgres-exporter:
+    image: wrouesnel/postgres_exporter:latest
+    container_name: postgres-exporter
+    environment:
+      - DATA_SOURCE_NAME=postgresql://admin:adminpassword@postgres-db:5432/resumedb?sslmode=disable
+    ports:
+      - "9187:9187"
+    networks:
+      - ai-resume-network
+    healthcheck:
+      test: ["CMD", "/postgres_exporter", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+
+  # ----------------------------------------------------
+  # REDIS EXPORTER
+  # ----------------------------------------------------
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: redis-exporter
+    command: ["--redis.addr=redis-cache:6379"]
+    ports:
+      - "9121:9121"
+    networks:
+      - ai-resume-network
+    healthcheck:
+      test: ["CMD", "/redis_exporter", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      redis:
+        condition: service_healthy
+
+networks:
+  ai-resume-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  grafana-data:

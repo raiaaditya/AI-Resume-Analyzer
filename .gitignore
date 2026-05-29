@@ -1,0 +1,28 @@
+# Java
+**/target/
+*.log
+*.class
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Python
+ai-service/__pycache__/
+ai-service/*.py[cod]
+ai-service/venv/
+ai-service/.env
+
+# Docker
+**/.dockerignore
+
+# OS / Editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Local environment
+.env
